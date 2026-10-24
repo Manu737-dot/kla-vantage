@@ -1,0 +1,352 @@
+# kenya-llm-latency configuration.
+#
+# Every target hostname below was checked against the provider's official docs
+# on 2026-10-21 (see `source`). Probes send ONE unauthenticated GET per target per
+# run. A 401/403/404 answer is expected and fine: we are timing the network, not
+# using the API.
+#
+# Fields per target:
+#   id        short unique name used in tables and charts
+#   url       full https URL that is requested (path chosen to give a tiny reply)
+#   group     llm | cloud | local
+#   provider  company name
+#   region    cloud region id (cloud group only)
+#   geo       africa | europe | us | kenya | anycast  (anycast = served from nearest edge)
+#   source    official doc that confirms the hostname
+#   note      anything a reader should know
+
+targets:
+  # ---------------------------------------------------------------- LLM APIs
+  - id: openai
+    url: https://api.openai.com/v1/models
+    group: llm
+    provider: OpenAI
+    geo: anycast
+    source: https://developers.openai.com/api/reference/overview
+  - id: anthropic
+    url: https://api.anthropic.com/v1/models
+    group: llm
+    provider: Anthropic
+    geo: anycast
+    source: https://platform.claude.com/docs/en/api/overview
+  - id: gemini
+    url: https://generativelanguage.googleapis.com/v1beta/models
+    group: llm
+    provider: Google Gemini
+    geo: anycast
+    source: https://ai.google.dev/api
+  - id: mistral
+    url: https://api.mistral.ai/v1/models
+    group: llm
+    provider: Mistral
+    geo: anycast
+    source: https://docs.mistral.ai/api/
+  - id: groq
+    url: https://api.groq.com/openai/v1/models
+    group: llm
+    provider: Groq
+    geo: anycast
+    source: https://console.groq.com/docs/api-reference
+  - id: openrouter
+    # /api/v1/models is public and large (hundreds of KB), so we hit the
+    # authenticated key endpoint instead, which answers 401 with a tiny body.
+    url: https://openrouter.ai/api/v1/key
+    group: llm
+    provider: OpenRouter
+    geo: anycast
+    source: https://openrouter.ai/docs/api-reference/overview
+  - id: deepseek
+    url: https://api.deepseek.com/models
+    group: llm
+    provider: DeepSeek
+    geo: anycast
+    source: https://api-docs.deepseek.com/
+  - id: cohere
+    url: https://api.cohere.com/v1/models
+    group: llm
+    provider: Cohere
+    geo: anycast
+    source: https://docs.cohere.com/reference/chat
+  - id: xai
+    url: https://api.x.ai/v1/models
+    group: llm
+    provider: xAI
+    geo: anycast
+    source: https://docs.x.ai/docs/api-reference
+
+  # ------------------------------------------------- Cloud region baselines
+  # AWS: DynamoDB regional endpoints answer GET / with "healthy: ..." and no auth.
+  - id: aws-af-south-1
+    url: https://dynamodb.af-south-1.amazonaws.com/
+    group: cloud
+    provider: AWS
+    region: af-south-1
+    geo: africa
+    source: https://docs.aws.amazon.com/general/latest/gr/ddb.html
+    note: Cape Town
+  - id: aws-eu-west-1
+    url: https://dynamodb.eu-west-1.amazonaws.com/
+    group: cloud
+    provider: AWS
+    region: eu-west-1
+    geo: europe
+    source: https://docs.aws.amazon.com/general/latest/gr/ddb.html
+    note: Ireland
+  - id: aws-us-east-1
+    url: https://dynamodb.us-east-1.amazonaws.com/
+    group: cloud
+    provider: AWS
+    region: us-east-1
+    geo: us
+    source: https://docs.aws.amazon.com/general/latest/gr/ddb.html
+    note: N. Virginia
+
+  # Azure: regional Speech endpoints (voices list answers 401 without a key).
+  # Measured RTTs differ by region (≈60/130/200 ms), so these are regional, not anycast.
+  - id: azure-southafricanorth
+    url: https://southafricanorth.tts.speech.microsoft.com/cognitiveservices/voices/list
+    group: cloud
+    provider: Azure
+    region: southafricanorth
+    geo: africa
+    source: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech
+    note: Johannesburg
+  - id: azure-westeurope
+    url: https://westeurope.tts.speech.microsoft.com/cognitiveservices/voices/list
+    group: cloud
+    provider: Azure
+    region: westeurope
+    geo: europe
+    source: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech
+    note: Netherlands
+  - id: azure-eastus
+    url: https://eastus.tts.speech.microsoft.com/cognitiveservices/voices/list
+    group: cloud
+    provider: Azure
+    region: eastus
+    geo: us
+    source: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech
+    note: Virginia
+
+  # Google Cloud: Cloud Storage *regional endpoints* (rep.googleapis.com). Google
+  # documents that traffic to these is "processed and TLS terminated within the
+  # specified region", unlike normal *.googleapis.com hosts, which are anycast.
+  - id: gcp-africa-south1
+    url: https://storage.africa-south1.rep.googleapis.com/
+    group: cloud
+    provider: Google Cloud
+    region: africa-south1
+    geo: africa
+    source: https://docs.cloud.google.com/storage/docs/regional-endpoints
+    note: Johannesburg
+  - id: gcp-europe-west1
+    url: https://storage.europe-west1.rep.googleapis.com/
+    group: cloud
+    provider: Google Cloud
+    region: europe-west1
+    geo: europe
+    source: https://docs.cloud.google.com/storage/docs/regional-endpoints
+    note: Belgium
+  - id: gcp-us-central1
+    url: https://storage.us-central1.rep.googleapis.com/
+    group: cloud
+    provider: Google Cloud
+    region: us-central1
+    geo: us
+    source: https://docs.cloud.google.com/storage/docs/regional-endpoints
+    note: Iowa
+
+  # ------------------------------------ AI cloud endpoints (network only)
+  # Added 23 Oct 2026. Requests carry no key, so nothing is billed: each one
+  # answers with a tiny error, which is enough to time DNS, TCP, TLS and the
+  # server's reply. Kept in their own group so the llm/cloud/local medians from
+  # before 23 Oct stay comparable.
+  - id: cf-workers-ai
+    url: https://api.cloudflare.com/client/v4/
+    group: ai-cloud
+    provider: Cloudflare Workers AI
+    geo: anycast
+    added: "2026-10-23"
+    source: https://developers.cloudflare.com/workers-ai/get-started/rest-api/
+    note: Workers AI runs at api.cloudflare.com/client/v4/accounts/{id}/ai/run/{model}; GET /client/v4/ answers 400
+  - id: aws-bedrock-af-south-1
+    url: https://bedrock-runtime.af-south-1.amazonaws.com/
+    group: ai-cloud
+    provider: AWS Bedrock
+    region: af-south-1
+    geo: africa
+    added: "2026-10-23"
+    source: https://docs.aws.amazon.com/bedrock/latest/userguide/endpoints-region-availability.html
+    note: Cape Town runtime endpoint; GET / answers 404. Models there use global cross-Region inference, so a request enters here but may be processed elsewhere
+  - id: azure-ai-southafricanorth
+    url: https://southafricanorth.api.cognitive.microsoft.com/
+    group: ai-cloud
+    provider: Azure AI services (regional)
+    region: southafricanorth
+    geo: africa
+    added: "2026-10-23"
+    source: https://learn.microsoft.com/en-us/azure/ai-services/cognitive-services-custom-subdomains
+    note: shared regional endpoint for Azure AI services in Johannesburg. Azure OpenAI resources get their own <name>.openai.azure.com, so there is no shared Azure OpenAI hostname
+
+  # ------------------------------------------------------- Local baselines
+  # Chosen by measurement on 2026-10-21: each answered in < 15 ms round trip
+  # from Machakos, so they are served from inside Kenya.
+  - id: local-google
+    url: https://www.google.com/generate_204
+    group: local
+    provider: Google (edge cache)
+    geo: kenya
+    source: measured; ~12 ms TCP connect (Google edge inside Kenya)
+    note: 204 No Content, empty body
+  - id: local-kenet
+    url: https://www.kenet.or.ke/robots.txt
+    group: local
+    provider: KENET (Kenya Education Network)
+    geo: kenya
+    source: measured; ~9 ms TCP connect (hosted in Kenya)
+  - id: local-cloudflare
+    url: https://1.1.1.1/cdn-cgi/trace
+    group: local
+    provider: Cloudflare 1.1.1.1
+    geo: kenya
+    source: measured; cf colo MBA (Mombasa)
+    note: Cloudflare anycast; the cf-ray header shows which city answered
+
+storage:
+  db_path: data/kla.sqlite3
+  # Paid AI calls are logged here even when --db points somewhere else (a dry run
+  # spends real money), so the spend cap always sees every call.
+  spend_db_path: data/kla.sqlite3
+  export_dir: data/export
+  reports_dir: reports
+  lock_path: data/kla.lock
+
+probe:
+  connect_timeout_s: 10
+  total_timeout_s: 20
+  max_body_bytes: 262144        # stop reading after 256 KB (we only need timing)
+  ip_version: 4                 # this connection has no IPv6 (checked 2026-10-21)
+  # "1.1" (default) or "2". HTTP/1.1 matches the official Python SDKs' default, and
+  # pycurl's bundled libcurl 8.22 added a ~1 s stall to small HTTP/2 replies in testing.
+  http_version: "1.1"
+  pause_between_targets_s: 0.3
+  shuffle_targets: true         # random order each run, so no target is always "first"
+  user_agent: "kenya-llm-latency/0.1 (network latency research; one request per 15 min)"
+  expected_interval_minutes: 15
+  gap_threshold_minutes: 25     # a gap is logged when two probe runs are further apart than this
+
+# A light ping to the same IP right after each probe (stored in the `pings` table).
+# Hosts that block ping are recorded as "no_reply" (missing), never as failures.
+ping:
+  enabled: true
+  count: 3
+  deadline_s: 3                 # safety cap only: exactly `count` packets are sent; a silent host takes ~1.4 s
+
+dns:
+  # "auto" = the upstream servers systemd-resolved uses (read from
+  # /run/systemd/resolve/resolv.conf), which is normally your router.
+  direct_servers: auto
+  timeout_s: 5
+
+context:
+  router_ping_count: 5
+  wait_for_network_s: 60        # after waking from sleep, wait up to this long for a route
+  # Wi-Fi network names that are really a phone hotspot (used only to label the
+  # connection type; the name itself is never stored).
+  hotspot_ssids: []
+
+trace:
+  groups: [llm]
+  cycles: 5
+  max_hops: 30
+  timeout_s: 90
+
+ai:
+  # Part 2 only runs for providers whose key is present in .env.
+  # allow_paid must stay false unless you deliberately want to pay.
+  allow_paid: false
+  prompt: "Reply with exactly one word: hello"
+  max_tokens: 32
+  providers:
+    gemini:
+      env_key: GEMINI_API_KEY
+      api: gemini
+      base_url: https://generativelanguage.googleapis.com/v1beta
+      min_interval_minutes: 120      # Google does not publish free daily quotas; stay low
+      daily_budget: 15               # max calls in any rolling 24 h (scheduled + experiments)
+      cooldown_after_429_minutes: 240
+      scheduled: [small]
+      models:
+        small: {id: gemini-3.5-flash-lite, thinking_level: MINIMAL}
+        # 3.8 Flash cannot go below LOW thinking; thinking tokens count against
+        # the cap, so it gets a bit more room to produce visible text.
+        large: {id: gemini-3.8-flash, thinking_level: LOW, max_tokens: 128}
+      # Free-tier models per https://ai.google.dev/gemini-api/docs/pricing (checked 2026-10-21)
+      free_models: [gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash-lite,
+                    gemini-3.1-flash-lite, gemini-3-flash-preview, gemini-2.5-flash,
+                    gemini-2.5-flash-lite]
+    openrouter:
+      env_key: OPENROUTER_API_KEY
+      api: openai
+      base_url: https://openrouter.ai/api/v1
+      min_interval_minutes: 60       # hourly = 24/day, inside the 50/day free limit
+      daily_budget: 40               # free limit is 50/day without purchased credits
+      cooldown_after_429_minutes: 60
+      scheduled: [small]
+      # Changed 23 Oct 2026: Gemma 4 (served by Google AI Studio) was rate-limited
+      # upstream on every scheduled call. Both Nemotron models run on NVIDIA's own
+      # servers and answered in a test that day. Their hidden reasoning is switched
+      # off: with it on, the first visible word took ~9.5 s instead of ~2 s.
+      models:
+        small: {id: "nvidia/nemotron-3.5-lightning:free", extra: {reasoning: {enabled: false}}}
+        large: {id: "nvidia/nemotron-3-ultra-550b-a55b:free", extra: {reasoning: {enabled: false}}}
+      # Every OpenRouter model must end in ":free" AND show price 0 in the live
+      # public model list at run time; otherwise the call is refused.
+      free_models: ["nvidia/nemotron-3.5-lightning:free", "nvidia/nemotron-3-ultra-550b-a55b:free"]
+    groq:
+      env_key: GROQ_API_KEY
+      api: openai
+      base_url: https://api.groq.com/openai/v1
+      min_interval_minutes: 60
+      daily_budget: 100              # free plan: 1,000 requests/day per model
+      cooldown_after_429_minutes: 120
+      scheduled: [small]
+      models:
+        # gpt-oss models reason before answering and the reasoning counts against
+        # max_tokens, so they need a larger cap to show any visible text.
+        small: {id: openai/gpt-oss-20b, max_tokens: 128, extra: {reasoning_effort: low}}
+        large: {id: openai/gpt-oss-120b, max_tokens: 128, extra: {reasoning_effort: low}}
+      # Free plan table at https://console.groq.com/docs/rate-limits (checked 2026-10-21)
+      free_models: [openai/gpt-oss-20b, openai/gpt-oss-120b, qwen/qwen3.8-27b]
+    openai:
+      # PAID, opt-in (added 23 Oct 2026). Called only while opt_in is true AND
+      # OPENAI_API_KEY is in .env. Each call's cost goes into the ai_spend table, and
+      # no call is made that could push the total past spend_cap_usd.
+      env_key: OPENAI_API_KEY
+      api: openai
+      base_url: https://api.openai.com/v1
+      paid: true
+      opt_in: true                   # false = never called, even with a key
+      spend_cap_usd: 1.00            # hard cap on the total, all runs ever (incl. experiments, dry runs)
+      min_interval_minutes: 60
+      daily_budget: 30               # calls per rolling 24 h: 24 hourly + a few for experiments
+      cooldown_after_429_minutes: 60
+      scheduled: [small]
+      models:
+        # gpt-5-nano reasons before answering: it takes max_completion_tokens (which
+        # also caps hidden reasoning), allows only the default temperature, and
+        # "minimal" effort keeps reasoning near zero. stream_usage asks for token
+        # counts at the end of the stream, to price the call.
+        small: {id: gpt-5-nano, max_tokens: 64, token_param: max_completion_tokens, temperature: null, stream_usage: true, extra: {reasoning_effort: minimal}}
+      # USD per 1M tokens, Standard tier, from https://developers.openai.com/api/docs/pricing
+      # (checked 2026-10-23; the cheapest model listed). Only these models may be called.
+      paid_models:
+        gpt-5-nano: {input: 0.05, output: 0.40}
+
+schedule:
+  probe_on_calendar: "*:0/15"
+  probe_random_delay_s: 90
+  trace_on_calendar: "hourly"
+  trace_random_delay_s: 300
+  ai_on_calendar: "*:30"
+  ai_random_delay_s: 300

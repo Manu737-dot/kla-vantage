@@ -1,0 +1,32 @@
+# The comparison vantage point: the laptop's measurements, run hourly from a
+# GitHub-hosted runner (src/kla/vantage.py, .github/workflows/vantage.yml).
+# Everything not set here comes from config.yaml, so the targets, HTTP settings,
+# models and prompt are the laptop's own.
+
+vantage:
+  name: us-runner             # the label on every row the runner writes
+  groups: [llm]               # only the 9 LLM API hosts; no ping or mtr (blocked on runners)
+  slot_minute: 45             # the workflow's cron minute
+  # Free daily quotas belong to the API key, and the runner uses the laptop's
+  # keys. These two are called every 2 h, on odd EAT hours (when the laptop
+  # calls Gemini), so laptop + runner stay inside the free limits, e.g.
+  # OpenRouter 24 + 12 of its 50 a day.
+  odd_hours_only: [gemini, openrouter]
+  db_path: data/vantage.sqlite3   # where `kla vantage pull` imports; never kla.sqlite3
+  # The public repo the runner works in; `kla vantage pull` fetches its vantage-data branch.
+  repo_url: https://github.com/Manu737-dot/kla-vantage.git
+
+overrides:
+  ai:
+    providers:
+      openai:
+        # The runner's own cap, kept in its own ledger on the vantage-data branch.
+        # vantage.HARD_CAP_USD (0.25) applies even if this is raised.
+        spend_cap_usd: 0.25
+      gemini:
+        # Every 2 h comes from odd_hours_only; 60 min here so GitHub's late
+        # starts (2 h +/- a few minutes) never skip a slot.
+        min_interval_minutes: 60
+        daily_budget: 13      # 12 slots a day, +1 for GitHub's start-time jitter
+      openrouter:
+        daily_budget: 13

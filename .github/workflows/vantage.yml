@@ -1,0 +1,89 @@
+name: vantage
+
+# The comparison vantage point: the laptop's own probes and AI calls, run hourly
+# from a GitHub-hosted runner (an Azure datacentre). Each run saves one SQLite
+# file to the vantage-data branch; `kla vantage pull` imports them on the laptop.
+
+on:
+  schedule:
+    # :45 is 10-15 min after the laptop's AI run (:30 plus up to 5 min), and the
+    # same time as its :45 probe round. GitHub often starts these a few minutes late.
+    - cron: "45 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write # push results to the vantage-data branch
+  actions: write # let the workflow switch itself off after END_EAT
+
+# One run at a time: each run reads and writes the spend ledger.
+concurrency:
+  group: vantage
+  cancel-in-progress: false
+
+env:
+  END_EAT: "2026-10-31T23:59:59+03:00"
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Switch off after the end date
+        id: end
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(date -u +%s)" -gt "$(date -u -d "$END_EAT" +%s)" ]; then
+            echo "Past $END_EAT: disabling this workflow. Nothing measured."
+            gh workflow disable vantage.yml --repo "$GITHUB_REPOSITORY"
+            echo "past=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.end.outputs.past != 'true'
+
+      - name: Check out the results branch
+        if: steps.end.outputs.past != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: vantage-data
+          path: vantage-data
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.end.outputs.past != 'true'
+        with:
+          version: "0.10.4"
+          python-version: "3.12.12" # the laptop's Python
+          enable-cache: true
+
+      - name: Install (the laptop's lockfile, so the same pycurl and libcurl)
+        if: steps.end.outputs.past != 'true'
+        run: uv sync --locked --no-dev
+
+      - name: Measure
+        if: steps.end.outputs.past != 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: .venv/bin/kla vantage run --data-dir vantage-data
+
+      - name: Save to the vantage-data branch
+        # always(): a paid call's spend row must be saved even if a later step failed.
+        if: always() && steps.end.outputs.past != 'true'
+        working-directory: vantage-data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f -- ledger/spend.sqlite3
+          git add -f -- 'runs/*.sqlite3' 2>/dev/null || true
+          if git diff --cached --quiet; then echo "Nothing new to save."; exit 0; fi
+          git commit -q -m "vantage run $GITHUB_RUN_ID"
+          for i in 1 2 3 4 5; do
+            if git push -q origin HEAD:vantage-data; then exit 0; fi
+            sleep $((i * 5))
+            git pull -q --rebase origin vantage-data
+          done
+          echo "Could not push the results." >&2
+          exit 1
